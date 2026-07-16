@@ -1,14 +1,14 @@
 # Self-Healing Infrastructure Pipeline (S.H.I.P) Engine 🚀
 
-An autonomous self-healing infrastructure pipeline powered by **FastAPI** and **Gemini AI**. This system is architected to automatically intercept server error logs, dynamically analyze root causes, sanitize output via Regex, and execute automated production hotfix injections to minimize system downtime.
+An autonomous self-healing infrastructure pipeline powered by FastAPI and Gemini AI. This system is architected to automatically intercept server error logs, dynamically analyze root causes, sanitize output via Regex, and execute automated production hotfix injections to minimize system downtime.
 
 ---
 
 ## ⚡ The Value Proposition: Why S.H.I.P Engine?
 
-In traditional production environments, resolving a server crash is slow, manual, and costly. **S.H.I.P Engine completely redefines this workflow:**
+In traditional production environments, resolving a server crash is slow, manual, and costly. S.H.I.P Engine completely redefines this workflow:
 
-* **Immediate MTTR Reduction (From Hours to Seconds):** Instead of waiting for an on-call engineer to wake up, read logs, and write a hotfix, the pipeline detects, debugs, and patches the system autonomously in **less than 5 seconds**.
+* **Immediate MTTR Reduction (From Hours to Seconds):** Instead of waiting for an on-call engineer to wake up, read logs, and write a hotfix, the pipeline detects, debugs, and patches the system autonomously in less than 3 seconds.
 * **Zero-Downtime Resilience:** By executing runtime file injections directly into the faulty production scripts, the system heals itself dynamically without requiring a full server redeployment or service interruption.
 * **Cost & Operational Efficiency:** Minimizes production downtime losses and frees development teams from repetitive, stress-inducing debugging tasks, allowing them to focus purely on building core features.
 * **Secured AI Execution:** Unlike raw AI code generation, our built-in Regex Sanitizer acts as a strict firewall, ensuring only safe, valid, and executable code patches are injected into your codebase.
@@ -16,20 +16,24 @@ In traditional production environments, resolving a server crash is slow, manual
 ---
 
 ## 🎯 Project Roadmap & Sprint Progress
-- [x] ⚙️ **DevDay 1:** FastAPI Core Architecture & Asynchronous Database Setup (SQLAlchemy + SQLite)
-- [x] 🔍 **DevDay 2:** Error Log Interceptor Development & Strict Regex Output Sanitizer Engine
-- [x] 🤖 **DevDay 3:** Gemini AI Prompt Engineering & Autonomous Production File Patch Injector
-- [ ] 🧪 **DevDay 4:** Automated Unit Testing Framework & Seamless Git Automation Pipeline
-- [ ] 🛡️ **DevDay 5:** Security Hardening, Token Validation, and Environment Isolation
-- [ ] 📊 **DevDay 6+:** Multi-agent AI Integration, Real-time Dashboard, and Beyond....
+
+* [x] ⚙️ **DevDay 1:** FastAPI Core Architecture & Asynchronous Database Setup (SQLAlchemy + SQLite)
+* [x] 🔍 **DevDay 2:** Error Log Interceptor Development & Strict Regex Output Sanitizer Engine
+* [x] 🤖 **DevDay 3:** Gemini AI Prompt Engineering & Autonomous Production File Patch Injector
+* [x] 🧪 **DevDay 4:** Automated Unit Testing Framework & Seamless Git Automation Pipeline
+* [ ] 🛡️ **DevDay 5:** Security Hardening, Token Validation, and Environment Isolation
+* [ ] 👥 **DevDay 6+:** Multi-agent AI Integration, Real-time Dashboard, and Beyond...
+
 ---
 
 ## 🛠️ Tech Stack
-- **Language:** Python 3.10+
-- **Framework:** FastAPI (Asynchronous Python)
-- **AI Core:** Google Gemini AI API
-- **Database:** SQLAlchemy (Async SQLite via `aiosqlite`)
-- **Version Control:** Git & GitHub
+
+* **Language:** Python 3.10+ (Running Python 3.13+)
+* **Framework:** FastAPI (Asynchronous Python)
+* **Testing:** Pytest & Pytest-Asyncio
+* **AI Core:** Google Gemini AI API
+* **Database:** SQLAlchemy (Async SQLite via `aiosqlite`)
+* **Version Control:** Git & GitHub
 
 ---
 
@@ -49,5 +53,12 @@ We integrated the Google Gemini AI engine, designing precise prompt payloads tha
 ### 4. Git Synchronization & Cloud Deployment
 To ensure proper version control and portfolio visibility, Git was natively integrated into the workspace. After handling Windows environment path alignment and authenticating securely via Git Credential Manager, the clean codebase milestone was pushed directly to GitHub under the main branch.
 
+### 5. Automated Unit Testing & Self-Healing Loop (DevDay 4 Special)
+We engineered an autonomous reliability loop to catch and patch logical failures under 3 seconds. The system flow executes as follows:
+* **Detection:** A silent logical bug in `server_math.py` (calculating tax from raw subtotal instead of discounted subtotal) triggered a pipeline halt on `pytest` execution (`AssertionError`).
+* **Telemetry & Recovery:** The pipeline captured the stack trace, dispatched it to S.H.I.P's dynamic `/api/v1/intercept-log` endpoint, and stored the Gemini-compiled patch inside the SQLite database.
+* **Autonomous Injection:** Pinging the `/api/v1/deploy-patch` endpoint automatically wrote the hotfix back to the server environment, restoring the system to a **100% Green (3 Passed)** state with zero manual code modifications.
+
 ---
+
 *Developed iteratively to advance the standards of autonomous DevOps and self-healing systems.*
