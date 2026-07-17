@@ -1,7 +1,7 @@
 import os
 import json
 import re
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, status, Depends, Header
 from pydantic import BaseModel, Field
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select
 import models
+from pathlib import Path
+from config import settings
 
 load_dotenv()
 
@@ -26,13 +28,44 @@ app = FastAPI(
     version="1.0.0"
 )
 
+import subprocess
+import sys
+
+@app.on_event("startup")
+async def run_security_audit():
+    print("\n[SECURITY AUDIT] Launching Enterprise Dependency Vulnerability Scanner...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip_audit", "-r", "requirements.txt"],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            print("[SECURITY AUDIT] SUCCESS: No known vulnerabilities found in dependencies. System secure.\n")
+        else:
+            print("[SECURITY AUDIT] WARNING: Vulnerabilities detected in third-party packages!")
+            print(result.stdout)
+            print(result.stderr)
+            
+    except Exception as e:
+        print(f"[SECURITY AUDIT] FAILED: Could not execute vulnerability scanner: {str(e)}\n")
+
+def verify_ship_token(x_ship_token: str = Header(..., description="Secure Admin Token for S.H.I.P Validation")):
+    if x_ship_token != settings.ship_admin_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Access Denied: Invalid S.H.I.P Security Token Compliance."
+        )
+    return x_ship_token
+
 @app.on_event("startup")
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 class ErrorLogPayload(BaseModel):
-    error_log: str = Field(..., description="Log error mentah dari server")
+    error_log: str = Field(..., description="Raw error log from server")
     broken_code: str = Field(..., description="Suspected broken backend code")
 
 def sanitize_patch_code(raw_code: str) -> str:
@@ -101,29 +134,58 @@ async def intercept_and_heal(payload: ErrorLogPayload, db: AsyncSession = Depend
     }
 
 @app.post("/api/v1/deploy-patch/{incident_id}", status_code=status.HTTP_200_OK)
-async def deploy_patch(incident_id: int, db: AsyncSession = Depends(get_db)):
+async def deploy_patch(
+    incident_id: int, 
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(verify_ship_token)
+):
     try:
         result = await db.execute(select(models.IncidentLog).where(models.IncidentLog.id == incident_id))
-        incident = result.scalar_one_repr() if hasattr(result, 'scalar_one_repr') else result.scalars().first()
+        incident = result.scalars().first()
         
         if not incident:
-            raise HTTPException(status_code=404, detail=f"Incident ID {incident_id} tidak ditemukan di database.")
-        clean_patch_code = incident.suggested_patch
-        target_file_path = os.path.join(os.getcwd(), "server_math.py")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Incident ID {incident_id} not found in the repository database."
+            )
         
-        if not os.path.exists(target_file_path):
-            raise HTTPException(status_code=404, detail="Target file 'server_math.py' tidak ditemukan di server produksi.")
+        clean_patch_code = incident.suggested_patch
+        sandbox_base = settings.safe_sandbox_dir
+        target_file_name = "server_math.py"
+        
+        target_path = Path(sandbox_base / target_file_name).resolve()
+        
+        if not str(target_path).startswith(str(sandbox_base)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Security Breach Detected: Path traversal attempt blocked by Sandbox Jail Guard!"
+            )
+            
+        if not target_path.exists():
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Target file '{target_file_name}' not found within the production sandbox environment."
+            )
 
-        with open(target_file_path, "w", encoding="utf-8") as file:
+        with open(target_path, "w", encoding="utf-8") as file:
             file.write(clean_patch_code)
             
         return {
             "deployment_status": "SUCCESS",
-            "target_patched": "server_math.py",
-            "message": f"Hotfix for Incident #{incident_id} has been successfully deployed and injected automatically."
+            "incident_id": incident_id,
+            "secured_path": str(target_path),
+            "message": f"Hotfix for Incident #{incident_id} has been deployed safely within Enterprise Sandbox boundaries."
         }
         
+    except HTTPException as http_err:
+        raise http_err
     except SQLAlchemyError as db_err:
-        raise HTTPException(status_code=500, detail=f"Database query failed: {str(db_err)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Database transaction failure: {str(db_err)}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Deployment pipeline failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Deployment automation pipeline failed: {str(e)}"
+        )
