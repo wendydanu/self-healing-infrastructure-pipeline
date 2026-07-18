@@ -1,26 +1,31 @@
 import os
 import json
 import re
-from fastapi import FastAPI, HTTPException, status, Depends, Header
+import subprocess
+import sys
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, status, Depends, Header, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.requests import Request
 from pydantic import BaseModel, Field
-import google.generativeai as genai
 from dotenv import load_dotenv
 from database import engine, Base, get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select
 import models
-from pathlib import Path
 from config import settings
+
+# --- DEVDAY 6 ARCHITECTURAL IMPORTS ---
+from agents import run_multi_agent_healing
+from websocket_manager import manager
 
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY or GEMINI_API_KEY == "Not Found!":
-    raise ValueError("[CRITICAL ERROR] GEMINI_API_KEY tidak ditemukan di file .env")
-
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-2.5-flash")
+    raise ValueError("[CRITICAL ERROR] GEMINI_API_KEY not found on .env file!")
 
 app = FastAPI(
     title="S.H.I.P Core",
@@ -28,9 +33,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-import subprocess
-import sys
+# Scaffolding templates directory for rendering the visual frontend
+templates = Jinja2Templates(directory="templates")
 
+# --- ENTERPRISE SECURITY STARTUP AUDIT ---
 @app.on_event("startup")
 async def run_security_audit():
     print("\n[SECURITY AUDIT] Launching Enterprise Dependency Vulnerability Scanner...")
@@ -51,6 +57,12 @@ async def run_security_audit():
     except Exception as e:
         print(f"[SECURITY AUDIT] FAILED: Could not execute vulnerability scanner: {str(e)}\n")
 
+@app.on_event("startup")
+async def startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+# --- AUTHENTICATION GATEWAY ---
 def verify_ship_token(x_ship_token: str = Header(..., description="Secure Admin Token for S.H.I.P Validation")):
     if x_ship_token != settings.ship_admin_token:
         raise HTTPException(
@@ -58,11 +70,6 @@ def verify_ship_token(x_ship_token: str = Header(..., description="Secure Admin 
             detail="Access Denied: Invalid S.H.I.P Security Token Compliance."
         )
     return x_ship_token
-
-@app.on_event("startup")
-async def startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
 class ErrorLogPayload(BaseModel):
     error_log: str = Field(..., description="Raw error log from server")
@@ -73,38 +80,45 @@ def sanitize_patch_code(raw_code: str) -> str:
     clean_code = re.sub(r'```\s*$', '', clean_code, flags=re.MULTILINE)
     return clean_code.strip()
 
-@app.get("/", status_code=status.HTTP_200_OK)
-async def health_check():
-    return {"status": "active", "pipeline": "Self-Healing Infrastructure Engine"}
+# --- ROUTE 1: UI DASHBOARD RENDERER ---
+@app.get("/", response_class=HTMLResponse)
+async def get_dashboard(request: Request):
+    """Renders the main enterprise pipeline telemetry cockpit UI."""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
 
+# --- ROUTE 2: WEBSOCKET TELEMETRY CHANNEL ---
+@app.websocket("/ws/telemetry")
+async def websocket_endpoint(websocket: WebSocket):
+    """Establishes a persistent bi-directional telemetry stream pipeline to the UI."""
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive by listening to implicit client heartbeat sweeps
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+# --- ROUTE 3: INTERCEPT LOGGER & MULTI-AGENT FLOW ---
 @app.post("/api/v1/intercept-log", status_code=status.HTTP_200_OK)
 async def intercept_and_heal(payload: ErrorLogPayload, db: AsyncSession = Depends(get_db)):
+    # BROADCAST TELEMETRY: Ingestion Event (Alert the frontend immediately)
+    await manager.broadcast({
+        "event": "INCIDENT_INTERCEPTED",
+        "incident_id": "PENDING",
+        "error_log": payload.error_log[:150] + "..."
+    })
+
     try:
-        system_prompt = f"""
-        You are an autonomous DevOps and Core Systems Engineering Robot.
-        Review the incoming server error log and identify the bug in the provided broken code.
+        # Trigger Multi-Agent Orchestration Chain (RCA + Patching Agents) via agents.py
+        diagnosis, raw_patch_code = run_multi_agent_healing(payload.error_log, payload.broken_code)
         
-        You MUST respond strictly in JSON format with the following keys:
-        1. "analysis": A short, highly technical explanation of why the crash happened. Do not use conversational filler.
-        2. "patch": The corrected, production-ready full Python code block. Do not include markdown wraps inside the JSON value.
-        
-        [INCOMING SERVER ERROR LOG]:
-        {payload.error_log}
-        
-        [BROKEN SOURCE CODE]:
-        {payload.broken_code}
-        """
-        
-        response = gemini_model.generate_content(
-            system_prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
-        
-        ai_data = json.loads(response.text)
-        analysis_text = ai_data.get("analysis", "")
-        patch_code_raw = ai_data.get("patch", "")
-        
-        clean_python_code = sanitize_patch_code(patch_code_raw)
+        # BROADCAST TELEMETRY: Reasoning Pipeline Complete
+        await manager.broadcast({
+            "event": "PATCH_COMPILED",
+            "diagnosis": diagnosis
+        })
+
+        clean_python_code = sanitize_patch_code(raw_patch_code)
         patch_lines = clean_python_code.splitlines()
         
     except Exception as ai_err:
@@ -114,7 +128,7 @@ async def intercept_and_heal(payload: ErrorLogPayload, db: AsyncSession = Depend
         new_incident = models.IncidentLog(
             error_log=payload.error_log,
             broken_code=payload.broken_code,
-            error_analysis=analysis_text,
+            error_analysis=diagnosis,
             suggested_patch=clean_python_code
         )
         db.add(new_incident)
@@ -129,10 +143,11 @@ async def intercept_and_heal(payload: ErrorLogPayload, db: AsyncSession = Depend
         "incident_id": new_incident.id,
         "telemetry_captured": True,
         "engine_status": "PATCH_GENERATED_AND_STORED",
-        "error_analysis": analysis_text,
+        "error_analysis": diagnosis,
         "suggested_patch_clean": patch_lines
     }
 
+# --- ROUTE 4: SECURED SANDBOX DEPLOYMENT ---
 @app.post("/api/v1/deploy-patch/{incident_id}", status_code=status.HTTP_200_OK)
 async def deploy_patch(
     incident_id: int, 
@@ -155,6 +170,7 @@ async def deploy_patch(
         
         target_path = Path(sandbox_base / target_file_name).resolve()
         
+        # Sandbox Isolation Enforcement Layer (DevDay 5 Guard)
         if not str(target_path).startswith(str(sandbox_base)):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -169,6 +185,12 @@ async def deploy_patch(
 
         with open(target_path, "w", encoding="utf-8") as file:
             file.write(clean_patch_code)
+
+        # BROADCAST TELEMETRY: Successful Deploy Event Transmission
+        await manager.broadcast({
+            "event": "DEPLOY_SUCCESS",
+            "secured_path": str(target_path)
+        })
             
         return {
             "deployment_status": "SUCCESS",
