@@ -10,3 +10,5 @@ jinja2
 pip-audit
 pytest
 pytest-asyncio
+prometheus-fastapi-instrumentator
+structlog

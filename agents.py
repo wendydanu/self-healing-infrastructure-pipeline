@@ -6,9 +6,9 @@ genai.configure(api_key=settings.gemini_api_key)
 rca_agent = genai.GenerativeModel(
     model_name="gemini-2.5-flash",
     system_instruction=(
-        "You are an expert Reliability Engineer specializing in Root Cause Analysis (RCA). "
-        "Your sole task is to analyze raw server stack traces and broken source code. "
-        "Identify the exact file name, line number, and structural logical flaw. "
+        "You are an expert Distributed Systems Reliability Engineer specializing in Root Cause Analysis (RCA). "
+        "Your sole task is to analyze raw server stack traces, distributed Trace IDs, and broken source code. "
+        "Identify the exact file name, line number, structural logical flaw, and trace correlation point. "
         "Provide a concise, technical diagnosis summary. Do NOT generate any code patches."
     )
 )
@@ -24,9 +24,14 @@ patching_agent = genai.GenerativeModel(
     )
 )
 
-def run_multi_agent_healing(error_log: str, broken_code: str) -> tuple[str, str]:
-    """Orchestrator untuk menjalankan rantai kolaborasi Multi-Agent."""
-    rca_prompt = f"Analyze this incident:\n\n[STACK TRACE]\n{error_log}\n\n[BROKEN CODE]\n{broken_code}"
+def run_multi_agent_healing(error_log: str, broken_code: str, trace_id: str = "N/A") -> tuple[str, str]:
+    """Orchestrates the collaborative Multi-Agent reasoning chain workflow with distributed trace context."""
+    rca_prompt = (
+        f"Analyze this incident:\n\n"
+        f"[TRACE ID]: {trace_id}\n\n"
+        f"[STACK TRACE]\n{error_log}\n\n"
+        f"[BROKEN CODE]\n{broken_code}"
+    )
     rca_response = rca_agent.generate_content(rca_prompt)
     diagnosis = rca_response.text
 
