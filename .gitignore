@@ -4,3 +4,6 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+ship_store.db
+*.db
+*.sqlite3
