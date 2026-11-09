@@ -1,9 +1,10 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
 pydantic-settings
 python-dotenv
-sqlalchemy
+requests
+sqlalchemy[asyncio]
 aiosqlite
 google-generativeai
 jinja2
