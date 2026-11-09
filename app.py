@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, status, Depends, Header, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
 from database import engine, Base, get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,9 +80,18 @@ def verify_ship_token(x_ship_token: str = Header(..., description="Secure Admin 
         )
     return x_ship_token
 
+ALLOWED_TARGET_FILES = {"payment_gateway.py", "app_target_demo.py"}
+
 class ErrorLogPayload(BaseModel):
-    error_log: str = Field(..., description="Raw error log from server")
-    broken_code: str = Field(..., description="Suspected broken backend code")
+    error_log: str = Field(..., max_length=10_000)
+    broken_code: str = Field(..., max_length=50_000)
+    target_file: str = Field(..., max_length=100, pattern=r"^[A-Za-z0-9_\-]+\.py$")
+    @field_validator("target_file")
+    @classmethod
+    def target_must_be_allowed(cls, v: str) -> str:
+        if v not in ALLOWED_TARGET_FILES:
+            raise ValueError("target_file is not in the allowed targets list")
+        return v
 
 def sanitize_patch_code(raw_code: str) -> str:
     clean_code = re.sub(r'^```python\s*|^```\s*', '', raw_code, flags=re.MULTILINE)
@@ -105,7 +114,12 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 @app.post("/api/v1/intercept-log", status_code=status.HTTP_200_OK)
-async def intercept_and_heal(request: Request, payload: ErrorLogPayload, db: AsyncSession = Depends(get_db)):
+async def intercept_and_heal(
+    request: Request,
+    payload: ErrorLogPayload,
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(verify_ship_token),
+    ):
     trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
     
     logger.info("incident_intercepted", trace_id=trace_id, error_snippet=payload.error_log[:100])
@@ -138,7 +152,8 @@ async def intercept_and_heal(request: Request, payload: ErrorLogPayload, db: Asy
             error_log=payload.error_log,
             broken_code=payload.broken_code,
             error_analysis=f"[TRACE ID: {trace_id}]\n{diagnosis}",
-            suggested_patch=clean_python_code
+            suggested_patch=clean_python_code,
+            target_file=payload.target_file
         )
         db.add(new_incident)
         await db.commit()
@@ -179,14 +194,18 @@ async def deploy_patch(
                 status_code=404, 
                 detail=f"Incident ID {incident_id} not found in the repository database."
             )
+
+        if incident.target_file not in ALLOWED_TARGET_FILES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="Target file is not an approved deploy target.")
         
         clean_patch_code = incident.suggested_patch
-        sandbox_base = settings.safe_sandbox_dir
-        target_file_name = "server_math.py"
-        
-        target_path = Path(sandbox_base / target_file_name).resolve()
-        
-        if not str(target_path).startswith(str(sandbox_base)):
+        sandbox_root = Path(settings.safe_sandbox_dir).resolve()
+        target_file_name = incident.target_file
+
+        target_path = (sandbox_root / target_file_name).resolve()
+
+        if not target_path.is_relative_to(sandbox_root):
             logger.error("sandbox_boundary_breach_attempt", incident_id=incident_id, trace_id=trace_id)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
