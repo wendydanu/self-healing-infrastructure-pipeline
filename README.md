@@ -1,87 +1,130 @@
-# Self-Healing Infrastructure Pipeline (S.H.I.P) Engine
+# S.H.I.P: Self-Healing Infrastructure Pipeline
 
-An autonomous self-healing infrastructure pipeline powered by FastAPI and Gemini AI. This system is architected to automatically intercept server error logs, dynamically analyze root causes, sanitize output via Regex, and execute automated production hotfix injections to minimize system downtime.
+An experimental pipeline that intercepts a server error, asks Gemini to diagnose it, asks a second Gemini agent to write a patch, and applies the patch to an allowlisted file.
 
----
-
-## The Value Proposition: Why S.H.I.P Engine?
-
-In traditional production environments, resolving a server crash is slow, manual, and costly. S.H.I.P Engine completely redefines this workflow:
-
-* **Immediate MTTR Reduction (From Hours to Seconds):** Instead of waiting for an on-call engineer to wake up, read logs, and write a hotfix, the pipeline detects, debugs, and patches the system autonomously in less than 3 seconds.
-* **Zero-Downtime Resilience:** By executing runtime file injections directly into the faulty production scripts, the system heals itself dynamically without requiring a full server redeployment or service interruption.
-* **Cost & Operational Efficiency:** Minimizes production downtime losses and frees development teams from repetitive, stress-inducing debugging tasks, allowing them to focus purely on building core features.
-* **Secured AI Execution & Sandboxing:** Unlike raw AI code generation, our built-in Regex Sanitizer acts as a strict firewall, while our Sandbox Isolation layer ensures code patches are jailed within safe directory boundaries.
-* **Distributed Observability & Prometheus Monitoring:** Features complete multi-agent reasoning chains correlated via distributed Trace IDs (`X-Trace-ID`), structured JSON logging (`structlog`), and real-time Prometheus telemetry metrics endpoints (`/metrics`).
+> **Status: experimental.** This is a learning project and a working demo, not a production tool. Do not point it at systems you care about. See [Known limitations](#known-limitations).
 
 ---
 
-## Project Roadmap & Sprint Progress
+## What it does
 
-* [x] **DevDay 1:** FastAPI Core Architecture & Asynchronous Database Setup (SQLAlchemy + SQLite)
-* [x] **DevDay 2:** Error Log Interceptor Development & Strict Regex Output Sanitizer Engine
-* [x] **DevDay 3:** Gemini AI Prompt Engineering & Autonomous Production File Patch Injector
-* [x] **DevDay 4:** Automated Unit Testing Framework & Seamless Git Automation Pipeline
-* [x] **DevDay 5:** Security Hardening, Token Validation, and Environment Isolation Layer
-* [x] **DevDay 6:** Multi-agent AI Integration & Real-time WebSockets Telemetry Dashboard
-* [x] **DevDay 7:** Distributed Logging, Distributed Tracing, and Production Monitoring Clusters
+1. A crashing service sends its stack trace and source file to `POST /api/v1/intercept-log`.
+2. **Agent 1 (Root Cause Analyst)** reads the stack trace and writes a diagnosis. It does not write code.
+3. **Agent 2 (Patching Compiler)** takes the diagnosis and the broken file and produces a replacement file.
+4. The patch is stored in the database as an incident.
+5. A token-authenticated call to `POST /api/v1/deploy-patch/{incident_id}` writes the patch to the target file.
+6. A WebSocket dashboard shows incidents as they happen.
 
----
+Separating diagnosis from code generation keeps each prompt single-purpose. Whether that improves accuracy over a single prompt has **not** been measured yet (see the roadmap).
 
-## Tech Stack
+## Demo scenarios
 
-* **Language:** Python 3.10+ (Running Python 3.13+)
-* **Framework:** FastAPI (Asynchronous Python WebSockets Core)
-* **Observability & Metrics:** Structlog (JSON Logging), OpenTelemetry Context (`X-Trace-ID`), & Prometheus FastAPI Instrumentator (`/metrics`)
-* **Testing & Security:** Pytest, Pytest-Asyncio, & `pip-audit`
-* **AI Core:** Google Gemini AI API (`gemini-2.5-flash` Multi-Agent Configuration)
-* **Database:** Profiled SQLAlchemy (Async SQLite via `aiosqlite`)
-* **UI & Rendering Framework:** Jinja2 HTML5 Templates, Tailwind CSS, and Chart.js
-* **Environment Management:** Pydantic Settings & Dotenv
-* **Version Control:** Git & GitHub
+Each demo resets a broken fixture, crashes it for real, sends the crash to the engine, and deploys the patch.
 
----
+| Script | Fixture | Bug |
+|---|---|---|
+| `run_live_demo.py` | `payment_gateway.broken.py` | `ZeroDivisionError` on an empty cart, unbound `discount` variable |
+| `run_local_simulation.py` | `app_target_demo.broken.py` | `TypeError` from concatenating a string with an int |
 
-## How It Was Built: Step-by-Step Development
+Before/after examples of generated patches are in [`examples/`](examples/). Gemini is not deterministic, so a run may produce different code.
 
-This project was developed through a highly structured sprint methodology, transitioning from a local prototype to a robust cloud-managed repository:
+## Quick start
 
-### 1. Architectural Initialization
-The development began with scaffolding the FastAPI core structure. To ensure high performance and non-blocking I/O operations, an asynchronous database layer was established using SQLAlchemy alongside `aiosqlite` to log every system interception securely.
+Requires Python 3.10+ (developed on 3.13) and a [Gemini API key](https://aistudio.google.com/app/apikey).
 
-### 2. Log Interception & Regex Sanitization
-A specialized ingest endpoint was engineered to act as a production webhook for broken servers. When a crash occurs, the raw log is captured. To protect the system from malicious AI output or invalid syntax, a strict Regex Sanitizer was implemented to filter out everything except pure executable Python code.
+```bash
+python -m venv .venv
+# Windows: .\.venv\Scripts\Activate.ps1   |   macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
 
-### 3. AI Core & Injection Logic
-Integration of the Google Gemini AI engine was achieved by designing precise prompt payloads that force the model to behave purely as an autonomous debugging compiler. Once a valid patch is generated and sanitized, the engine invokes the `File Patch Injector` to overwrite the faulty local script (e.g., `server_math.py`) in real-time.
+cp .env.example .env          # Windows: copy .env.example .env
+```
 
-### 4. Git Synchronization & Cloud Deployment
-To ensure proper version control and portfolio visibility, Git was natively integrated into the workspace. After handling Windows environment path alignment and authenticating securely via Git Credential Manager, the clean codebase milestone was pushed directly to GitHub under the main branch.
+Edit `.env`:
 
-### 5. Automated Unit Testing & Self-Healing Loop
-An autonomous reliability loop was engineered to catch and patch logical failures under 3 seconds. The system flow executes as follows:
-* **Detection:** A silent logical bug in `server_math.py` triggered a pipeline halt on `pytest` execution (`AssertionError`).
-* **Telemetry & Recovery:** The pipeline captured the stack trace, dispatched it to S.H.I.P's dynamic `/api/v1/intercept-log` endpoint, and stored the Gemini-compiled patch inside the SQLite database.
-* **Autonomous Injection:** Pinging the `/api/v1/deploy-patch` endpoint automatically wrote the hotfix back to the server environment, restoring the system to a **100% Green** state with zero manual code modifications.
+```
+GEMINI_API_KEY=your-gemini-key
+SHIP_ADMIN_TOKEN=<generate one, see below>
+SAFE_SANDBOX_DIR=<absolute path of this project folder>
+```
 
-### 6. Enterprise Security Hardening & Isolation Layer
-To upgrade the pipeline for mission-critical production environments, a rigorous multi-layered defense matrix was engineered:
-* **Automated Startup Vulnerability Scanning:** Programmatic integration of `pip-audit` into the FastAPI Lifespan architecture. The server automatically conducts a full dependency compliance audit upon initialization, successfully detecting real-world vulnerabilities (e.g., `PYSEC-2026-3444` in `httplib2`) before opening communication ports.
-* **Token Validation Middleware Gate:** Implementation of a strict custom header authentication protocol using FastAPI `Depends` and Pydantic Settings. Any unauthenticated telemetry attempts or missing tokens are immediately blocked at the perimeter with automated `422 Unprocessable Content` / `403 Forbidden` compliance barriers.
-* **Path Traversal Protection (Sandbox Jail Guard):** Refactoring of the hotfix injection core using `pathlib.Path.resolve()`. The system forces strict boundary evaluation, preventing malicious *path traversal* attacks. If a patch attempts to break out of the defined `SAFE_SANDBOX_DIR`, the transaction is killed instantly.
+Generate a token:
 
-### 7. Multi-Agent AI Core & Real-time WebSockets Dashboard
-The pipeline evolved from a single-model infrastructure into a collaborative, decoupled intelligent system equipped with a full visual monitoring interface:
-* **Decoupled Multi-Agent Reasoning Chain:** Upgrading of the AI layer by decoupling operations into two distinct, specialized agents running on `gemini-2.5-flash`. *Agent 1 (Root Cause Analyst)* processes error stack traces to diagnose failure parameters without writing code. *Agent 2 (Patching Compiler)* ingests the diagnostic payload and synthesizes high-fidelity, isolated Python remediation code.
-* **Bi-directional WebSockets Telemetry Core:** Engineering of a `ConnectionManager` event broadcaster utilizing asynchronous non-blocking connection lines (`@app.websocket("/ws/telemetry")`). The API broadcasts incident lifecycles dynamically as me occur without thread pools stalling.
-* **Single-Stack Operational Dashboard Layout:** Implementation of a real-time event monitoring workspace built via Jinja2 templates, Tailwind CSS, and Chart.js. The interface dynamically renders live incident logs, historical chart flows, and agent processing timelines instantly without web browser reloads.
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
 
-### 8. Distributed Observability, Tracing & Metrics Cluster
-To ensure readiness for enterprise microservices and distributed cluster environments, a full observability matrix was integrated:
-* **Contextual Correlation & Distributed Tracing:** Middleware enforcement of `X-Trace-ID` propagation across HTTP headers and WebSocket frames. Every failure trace captured by Multi-Agent AI is directly bound to its specific upstream transaction context.
-* **Structured JSON Logging Engine:** Replacement of raw text logging with `structlog` JSON formatting. Every log record carries ISO timestamps, log levels, and trace variables for seamless aggregation in ELK/Datadog pipelines.
-* **Prometheus Metrics Exporter:** Exposing of the `/metrics` cluster monitoring endpoint via `prometheus-fastapi-instrumentator` to track HTTP latency histograms, error rates, and pipeline health metrics in real-time.
+Run the server and, in a second terminal, a demo:
 
----
+```bash
+uvicorn app:app
+python run_live_demo.py
+python app_target_demo.py     # after run_local_simulation.py, to see the healed result
+```
 
-*Developed iteratively to advance the standards of autonomous DevOps and self-healing systems.*
+The demos call Gemini, so they use your API quota.
+
+```bash
+pytest                        # unit tests for server_math.py
+python verify_security.py     # checks the API rejects bad requests (server must be running)
+```
+
+## API
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `POST /api/v1/intercept-log` | `X-Ship-Token` | Body: `error_log`, `broken_code`, `target_file`. Runs both agents, stores the incident. |
+| `POST /api/v1/deploy-patch/{incident_id}` | `X-Ship-Token` | Writes the stored patch to the incident's target file. |
+| `GET /metrics` | none | Prometheus metrics. |
+| `WS /ws/telemetry` | none | Live incident events for the dashboard. |
+
+Send `X-Trace-ID` to correlate a request across logs.
+
+## Security controls
+
+Verified by `verify_security.py` (all expected to pass):
+
+- A request without a token is rejected (`422`), a wrong token is rejected (`403`).
+- `target_file` must be on an allowlist (`ALLOWED_TARGET_FILES` in `app.py`). `app.py`, `config.py`, and `../app.py` are rejected (`422`).
+- Oversized `error_log` input is rejected (`422`).
+
+Also in the code, not covered by a dedicated test: a sandbox boundary check at deploy time, and a `pip-audit` dependency scan at startup.
+
+## Observability
+
+`structlog` JSON logs carrying the trace ID, `X-Trace-ID` propagation, a Prometheus `/metrics` endpoint, and a real-time dashboard (Jinja2, Tailwind CSS, Chart.js).
+
+## Known limitations
+
+These are real, not hypothetical. Read them before using this on anything.
+
+| Limitation | Consequence |
+|---|---|
+| Patches overwrite the target file directly, with no backup and no rollback | A bad patch cannot be undone from within the tool |
+| The output "sanitizer" only strips markdown code fences. It does not validate the code | A patch can be syntactically valid yet wrong, or unsafe |
+| Tests do not gate deployment | A patch that fixes one failure can break other behavior |
+| No check that the file changed between crash and deploy | Two patches for the same file can overwrite each other |
+| The sandbox directory is the whole project folder, protected only by the allowlist | The sandbox is not a real isolation boundary |
+| One shared admin token, no per-user access control, no rate limit | Not suitable for multiple users |
+| The WebSocket endpoint is not authenticated | Incident data can be read by anyone who can reach the server |
+| No evaluation of success rate or latency | There is no honest figure for how often it fixes a bug |
+| Uses the deprecated `google-generativeai` package | Migration to `google-genai` is planned |
+| Diagnosis comes from an LLM and can be wrong | A wrong diagnosis produces a wrong patch |
+
+## Roadmap
+
+Planned, in this order:
+
+1. Move to the `google-genai` SDK.
+2. **Safety loop:** AST validation of patches, run the tests in a temporary copy before deploying, backup and rollback, file-hash check to reject stale patches, optional human approval.
+3. Docker, `docker-compose`, and CI (tests plus `verify_security.py` on every push).
+4. Deliver patches as pull requests instead of overwriting files.
+5. Per-project API keys, rate limiting, Postgres, a job queue.
+6. An evaluation benchmark: a set of bug types, with success rate, time, and token cost per incident.
+7. A public playground using fixed scenarios, so no visitor-supplied code runs on the server.
+
+Completed so far: async FastAPI core and SQLite storage, two-agent chain, token authentication and path restrictions, WebSocket dashboard, tracing, structured logging, Prometheus metrics, demo fixtures, security verification script.
+
+## Tech stack
+
+Python, FastAPI, SQLAlchemy (async) with SQLite (`aiosqlite`), Pydantic Settings, Google Gemini (`gemini-2.5-flash`), structlog, `prometheus-fastapi-instrumentator`, Pytest, `pip-audit`, Jinja2, Tailwind CSS, Chart.js.
