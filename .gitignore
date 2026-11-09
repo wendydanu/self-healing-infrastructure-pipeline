@@ -8,3 +8,4 @@ ship_store.db
 *.db
 *.sqlite3
 payment_gateway.py
+app_target_demo.py
