@@ -25,6 +25,7 @@ Each demo resets a broken fixture, crashes it for real, sends the crash to the e
 |---|---|---|
 | `run_live_demo.py` | `payment_gateway.broken.py` | `ZeroDivisionError` on an empty cart, unbound `discount` variable |
 | `run_local_simulation.py` | `app_target_demo.broken.py` | `TypeError` from concatenating a string with an int |
+| `run_billing_demo.py` | `billing_engine.broken.py` | `ZeroDivisionError` on an empty order |
 
 Before/after examples of generated patches are in [`examples/`](examples/). Gemini is not deterministic, so a run may produce different code.
 
@@ -110,6 +111,7 @@ These are real, not hypothetical. Read them before using this on anything.
 | No evaluation of success rate or latency | There is no honest figure for how often it fixes a bug |
 | Uses the deprecated `google-generativeai` package | Migration to `google-genai` is planned |
 | Diagnosis comes from an LLM and can be wrong | A wrong diagnosis produces a wrong patch |
+| The patch replaces the whole file | The model can change code outside the bug (observed once: it added extra calls to a demo block) |
 
 ## Roadmap
 
