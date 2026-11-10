@@ -1,6 +1,8 @@
 import os
 import json
 import re
+from time import time
+import time
 import uuid
 import subprocess
 import sys
@@ -51,7 +53,7 @@ async def distributed_tracing_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 async def run_security_audit():
-    logger.info("security_audit_launching", detail="Launching Enterprise Dependency Vulnerability Scanner...")
+    logger.info("security_audit_launching", detail="Launching dependency vulnerability scan (pip-audit)...")
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pip_audit", "-r", "requirements.txt"],
@@ -80,7 +82,7 @@ def verify_ship_token(x_ship_token: str = Header(..., description="Secure Admin 
         )
     return x_ship_token
 
-ALLOWED_TARGET_FILES = {"payment_gateway.py", "app_target_demo.py"}
+ALLOWED_TARGET_FILES = {"payment_gateway.py", "app_target_demo.py", "billing_engine.py"}
 
 class ErrorLogPayload(BaseModel):
     error_log: str = Field(..., max_length=10_000)
@@ -100,8 +102,8 @@ def sanitize_patch_code(raw_code: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard(request: Request):
-    """Renders the main enterprise pipeline telemetry cockpit UI."""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    """Renders the real-time telemetry dashboard."""
+    return templates.TemplateResponse(request, "dashboard.html")
 
 @app.websocket("/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
@@ -131,18 +133,23 @@ async def intercept_and_heal(
         "error_log": payload.error_log[:150] + "..."
     })
 
+    
     try:
-        diagnosis, raw_patch_code = run_multi_agent_healing(payload.error_log, payload.broken_code, trace_id=trace_id)
-        
+        t0 = time.perf_counter()
+        diagnosis, raw_patch_code = run_multi_agent_healing(
+            payload.error_log, payload.broken_code, trace_id=trace_id
+        )
+        elapsed_seconds = round(time.perf_counter() - t0, 2)
+
         await manager.broadcast({
             "event": "PATCH_COMPILED",
             "trace_id": trace_id,
-            "diagnosis": diagnosis
+            "diagnosis": diagnosis,
+            "elapsed_seconds": elapsed_seconds,
         })
 
         clean_python_code = sanitize_patch_code(raw_patch_code)
         patch_lines = clean_python_code.splitlines()
-        
     except Exception as ai_err:
         logger.error("multi_agent_healing_failed", trace_id=trace_id, error=str(ai_err))
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(ai_err))
@@ -226,15 +233,15 @@ async def deploy_patch(
         await manager.broadcast({
             "event": "DEPLOY_SUCCESS",
             "trace_id": trace_id,
-            "secured_path": str(target_path)
+            "secured_path": incident.target_file
         })
             
         return {
             "deployment_status": "SUCCESS",
             "incident_id": incident_id,
             "trace_id": trace_id,
-            "secured_path": str(target_path),
-            "message": f"Hotfix for Incident #{incident_id} has been deployed safely within Enterprise Sandbox boundaries."
+            "secured_path": incident.target_file,
+            "message": f"Hotfix for Incident #{incident_id} written to {incident.target_file}.",
         }
         
     except HTTPException as http_err:
